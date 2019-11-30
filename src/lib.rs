@@ -190,7 +190,7 @@ macro_rules! source {
 }
 
 impl<A: std::fmt::Debug> Source<A> {
-    pub fn into_string(self) -> String {
+    pub fn debug(self) -> String {
         format!("source![{}]", self.map(|x| format!("{:?}", x)).join(", "))
     }
 }
@@ -256,22 +256,19 @@ mod test {
         }
     }
 
-    mod into_string {
+    mod debug {
         use super::*;
 
         #[test]
-        fn into_string_converts_into_source_macro() {
-            assert_eq!(source![1, 2, 3].into_string(), "source![1, 2, 3]");
+        fn debug_converts_into_source_macro() {
+            assert_eq!(source![1, 2, 3].debug(), "source![1, 2, 3]");
             let empty: Source<i32> = source![];
-            assert_eq!(empty.into_string(), "source![]");
+            assert_eq!(empty.debug(), "source![]");
         }
 
         #[test]
-        fn into_string_uses_debug() {
-            assert_eq!(
-                source!["foo", "bar"].into_string(),
-                r#"source!["foo", "bar"]"#
-            );
+        fn debug_uses_debug() {
+            assert_eq!(source!["foo", "bar"].debug(), r#"source!["foo", "bar"]"#);
         }
     }
 
