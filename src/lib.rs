@@ -3,45 +3,45 @@ use std::io::BufReader;
 use std::path::Path;
 use utf8_chars::BufReadCharsExt;
 
-pub struct Stream<A: 'static>(Box<dyn FnOnce() -> Option<(A, Stream<A>)> + 'static>);
+pub struct Source<A: 'static>(Box<dyn FnOnce() -> Option<(A, Source<A>)> + 'static>);
 
-impl<A: 'static> Stream<A> {
+impl<A: 'static> Source<A> {
     #[allow(clippy::should_implement_trait)]
     pub fn next(&mut self) -> Option<A> {
         let original = std::mem::replace(&mut self.0, Box::new(|| None));
         match original() {
-            Some((next_element, next_stream)) => {
-                self.0 = next_stream.0;
+            Some((next_element, next_source)) => {
+                self.0 = next_source.0;
                 Some(next_element)
             }
             None => None,
         }
     }
 
-    pub fn new<F: FnMut() -> Option<A> + 'static>(mut function: F) -> Stream<A> {
-        Stream(Box::new(move || match function() {
-            Some(next) => Some((next, Stream::new(function))),
+    pub fn new<F: FnMut() -> Option<A> + 'static>(mut function: F) -> Source<A> {
+        Source(Box::new(move || match function() {
+            Some(next) => Some((next, Source::new(function))),
             None => None,
         }))
     }
 
-    pub fn empty() -> Stream<A> {
-        Stream(Box::new(|| None))
+    pub fn empty() -> Source<A> {
+        Source(Box::new(|| None))
     }
 
-    pub fn single(a: A) -> Stream<A> {
-        Stream(Box::new(|| Some((a, Stream::empty()))))
+    pub fn single(a: A) -> Source<A> {
+        Source(Box::new(|| Some((a, Source::empty()))))
     }
 
-    pub fn map<B, F: FnMut(A) -> B + 'static>(mut self, mut function: F) -> Stream<B> {
-        Stream::new(move || match self.next() {
+    pub fn map<B, F: FnMut(A) -> B + 'static>(mut self, mut function: F) -> Source<B> {
+        Source::new(move || match self.next() {
             Some(x) => Some(function(x)),
             None => None,
         })
     }
 
-    pub fn filter<F: FnMut(&A) -> bool + 'static>(mut self, mut function: F) -> Stream<A> {
-        Stream::new(move || loop {
+    pub fn filter<F: FnMut(&A) -> bool + 'static>(mut self, mut function: F) -> Source<A> {
+        Source::new(move || loop {
             match self.next() {
                 Some(a) if function(&a) => return Some(a),
                 Some(_) => {}
@@ -62,23 +62,23 @@ impl<A: 'static> Stream<A> {
         accumulator
     }
 
-    pub fn flat_map<B, Next: FnMut(A) -> Stream<B> + 'static>(self, next: Next) -> Stream<B> {
+    pub fn flat_map<B, Next: FnMut(A) -> Source<B> + 'static>(self, next: Next) -> Source<B> {
         self.map(next).flatten()
     }
 
-    pub fn concat(self, other: Stream<A>) -> Stream<A> {
-        Stream(Box::new(move || match self.0() {
+    pub fn concat(self, other: Source<A>) -> Source<A> {
+        Source(Box::new(move || match self.0() {
             Some((a, next)) => Some((a, next.concat(other))),
             None => other.0(),
         }))
     }
 
-    pub fn append(self, last: A) -> Stream<A> {
-        self.concat(Stream::single(last))
+    pub fn append(self, last: A) -> Source<A> {
+        self.concat(Source::single(last))
     }
 
-    pub fn prepend(self, head: A) -> Stream<A> {
-        Stream(Box::new(|| Some((head, self))))
+    pub fn prepend(self, head: A) -> Source<A> {
+        Source(Box::new(|| Some((head, self))))
     }
 
     pub fn count<F: Fn(A) -> bool>(self, predicate: F) -> i32 {
@@ -86,16 +86,16 @@ impl<A: 'static> Stream<A> {
     }
 }
 
-impl<A, I: Iterator<Item = A> + 'static> From<I> for Stream<A> {
+impl<A, I: Iterator<Item = A> + 'static> From<I> for Source<A> {
     fn from(mut iterator: I) -> Self {
-        Stream::new(move || iterator.next())
+        Source::new(move || iterator.next())
     }
 }
 
-impl<A> Stream<Stream<A>> {
-    pub fn flatten(mut self) -> Stream<A> {
-        let mut current = Stream::empty();
-        Stream::new(move || loop {
+impl<A> Source<Source<A>> {
+    pub fn flatten(mut self) -> Source<A> {
+        let mut current = Source::empty();
+        Source::new(move || loop {
             match current.next() {
                 Some(a) => return Some(a),
                 None => match self.next() {
@@ -109,11 +109,11 @@ impl<A> Stream<Stream<A>> {
     }
 }
 
-impl<A: Clone> Stream<A> {
+impl<A: Clone> Source<A> {
     pub fn peek(&mut self) -> Option<A> {
         match self.next() {
             Some(a) => {
-                let original = std::mem::replace(self, Stream::empty());
+                let original = std::mem::replace(self, Source::empty());
                 *self = original.prepend(a.clone());
                 Some(a)
             }
@@ -121,9 +121,9 @@ impl<A: Clone> Stream<A> {
         }
     }
 
-    pub fn replicate(n: u32, element: A) -> Stream<A> {
+    pub fn replicate(n: u32, element: A) -> Source<A> {
         let mut counter = 0;
-        Stream::new(move || {
+        Source::new(move || {
             if counter < n {
                 counter += 1;
                 Some(element.clone())
@@ -134,16 +134,16 @@ impl<A: Clone> Stream<A> {
     }
 }
 
-impl Stream<char> {
-    pub fn read_utf8_file(file: &Path) -> Result<Stream<char>, std::io::Error> {
+impl Source<char> {
+    pub fn read_utf8_file(file: &Path) -> Result<Source<char>, std::io::Error> {
         let mut file = BufReader::new(fs::File::open(file)?);
-        Ok(Stream::new(move || {
+        Ok(Source::new(move || {
             file.read_char().expect("utf8 decoding error")
         }))
     }
 }
 
-impl<Snippet: Into<Box<str>>> Stream<Snippet> {
+impl<Snippet: Into<Box<str>>> Source<Snippet> {
     pub fn join<Separator: Into<Box<str>>>(self, separator: Separator) -> String {
         let separator: &str = &separator.into();
         let mut first = true;
@@ -160,17 +160,17 @@ impl<Snippet: Into<Box<str>>> Stream<Snippet> {
     }
 }
 
-impl<A> IntoIterator for Stream<A> {
+impl<A> IntoIterator for Source<A> {
     type Item = A;
-    type IntoIter = StreamIterator<A>;
-    fn into_iter(self) -> StreamIterator<A> {
-        StreamIterator(self)
+    type IntoIter = SourceIterator<A>;
+    fn into_iter(self) -> SourceIterator<A> {
+        SourceIterator(self)
     }
 }
 
-pub struct StreamIterator<A: 'static>(Stream<A>);
+pub struct SourceIterator<A: 'static>(Source<A>);
 
-impl<A> Iterator for StreamIterator<A> {
+impl<A> Iterator for SourceIterator<A> {
     type Item = A;
 
     fn next(&mut self) -> Option<A> {
@@ -179,22 +179,22 @@ impl<A> Iterator for StreamIterator<A> {
 }
 
 #[macro_export]
-macro_rules! stream {
+macro_rules! source {
     ($($x:expr),*) => {
-        $crate::Stream::from(vec![$($x),*].into_iter())
+        $crate::Source::from(vec![$($x),*].into_iter())
     };
     ($($x:expr,)*) => {
-        stream![$($x),*]
+        source![$($x),*]
     };
     ($element:expr; $n:expr) => {
-        $crate::Stream::replicate($n, $element)
+        $crate::Source::replicate($n, $element)
     };
 }
 
-impl<A: ToString> Stream<A> {
+impl<A: ToString> Source<A> {
     pub fn into_string(self) -> String {
         let mut first = true;
-        let mut result = "stream![".to_string();
+        let mut result = "source![".to_string();
         for a in self {
             if !first {
                 result.push_str(", ");
@@ -212,7 +212,7 @@ impl<A: ToString> Stream<A> {
 mod test {
     use super::*;
 
-    impl<A> Stream<A> {
+    impl<A> Source<A> {
         pub fn to_vec(self) -> Vec<A> {
             self.into_iter().collect()
         }
@@ -224,109 +224,109 @@ mod test {
         #[test]
         fn allows_to_convert_from_iterator() {
             let iter = vec![1, 2, 3].into_iter();
-            let from_next = Stream::from(iter);
+            let from_next = Source::from(iter);
             assert_eq!(from_next.to_vec(), vec![1, 2, 3]);
         }
 
         #[test]
         fn allows_to_convert_into_iterator() {
-            let stream = stream!(1, 2, 3).into_iter();
-            assert_eq!(stream.collect::<Vec<_>>(), vec![1, 2, 3]);
+            let source = source!(1, 2, 3).into_iter();
+            assert_eq!(source.collect::<Vec<_>>(), vec![1, 2, 3]);
         }
     }
 
-    mod stream_macro {
+    mod source_macro {
         use super::*;
 
         #[test]
         fn allows_to_convert_from_elements() {
-            let stream: Stream<i32> = stream![1, 2, 3];
-            assert_eq!(stream.to_vec(), vec![1, 2, 3]);
+            let source: Source<i32> = source![1, 2, 3];
+            assert_eq!(source.to_vec(), vec![1, 2, 3]);
         }
 
         #[test]
-        fn allows_to_create_empty_streams() {
-            let stream: Stream<i32> = Stream::empty();
-            assert_eq!(stream.to_vec(), vec![]);
+        fn allows_to_create_empty_sources() {
+            let source: Source<i32> = Source::empty();
+            assert_eq!(source.to_vec(), vec![]);
         }
 
         #[test]
-        fn allows_to_create_streams_with_one_element() {
-            let stream = Stream::single("foo");
-            assert_eq!(stream.to_vec(), vec!["foo"]);
+        fn allows_to_create_sources_with_one_element() {
+            let source = Source::single("foo");
+            assert_eq!(source.to_vec(), vec!["foo"]);
         }
 
         #[test]
         fn allows_to_trailing_commas() {
-            let stream: Stream<i32> = stream![1, 2, 3,];
-            assert_eq!(stream.to_vec(), vec![1, 2, 3]);
+            let source: Source<i32> = source![1, 2, 3,];
+            assert_eq!(source.to_vec(), vec![1, 2, 3]);
         }
 
         #[test]
         fn allows_to_replicate_a_given_element() {
-            let stream: Stream<i32> = stream![42; 3];
-            assert_eq!(stream.to_vec(), vec![42, 42, 42]);
+            let source: Source<i32> = source![42; 3];
+            assert_eq!(source.to_vec(), vec![42, 42, 42]);
         }
     }
 
     #[test]
-    fn into_string_converts_into_stream_macro() {
-        assert_eq!(stream![1, 2, 3].into_string(), "stream![1, 2, 3]");
-        let empty: Stream<i32> = stream![];
-        assert_eq!(empty.into_string(), "stream![]");
+    fn into_string_converts_into_source_macro() {
+        assert_eq!(source![1, 2, 3].into_string(), "source![1, 2, 3]");
+        let empty: Source<i32> = source![];
+        assert_eq!(empty.into_string(), "source![]");
     }
 
     #[test]
     fn map_works() {
-        let from_next: Stream<i32> = stream![1, 2, 3];
+        let from_next: Source<i32> = source![1, 2, 3];
         let mapped = from_next.map(|x| x.pow(2));
         assert_eq!(vec![1, 4, 9], mapped.to_vec());
     }
 
     #[test]
     fn filter_works() {
-        let stream = Stream::from(1..6).filter(|x| x % 2 == 1);
-        assert_eq!(stream.to_vec(), vec![1, 3, 5]);
+        let source = Source::from(1..6).filter(|x| x % 2 == 1);
+        assert_eq!(source.to_vec(), vec![1, 3, 5]);
     }
 
     #[test]
     fn fold_works() {
-        let sum = Stream::from(1..6).fold(0, |sum: i32, a| sum + a);
+        let sum = Source::from(1..6).fold(0, |sum: i32, a| sum + a);
         assert_eq!(sum, 15);
     }
 
     #[test]
     fn flatten_works() {
-        let flattened = stream!["foo", "bar"]
-            .map(|x| Stream::from(x.chars()))
+        let flattened = source!["foo", "bar"]
+            .map(|x| Source::from(x.chars()))
             .flatten();
         assert_eq!(vec!['f', 'o', 'o', 'b', 'a', 'r'], flattened.to_vec());
     }
 
     #[test]
     fn flatmap_works() {
-        let stream = stream!["foo", "bar"].flat_map(|x| Stream::from(x.chars()));
-        assert_eq!(vec!['f', 'o', 'o', 'b', 'a', 'r'], stream.to_vec());
+        let source = source!["foo", "bar"].flat_map(|x| Source::from(x.chars()));
+        assert_eq!(vec!['f', 'o', 'o', 'b', 'a', 'r'], source.to_vec());
     }
 
     #[test]
     fn concat_works() {
-        let mut stream = stream!["foo", "bar"];
-        stream = stream.concat(stream!["baz"]);
-        assert_eq!(vec!["foo", "bar", "baz"], stream.to_vec());
+        let mut source = source!["foo", "bar"];
+        source = source.concat(source!["baz"]);
+        assert_eq!(vec!["foo", "bar", "baz"], source.to_vec());
     }
 
     #[test]
     fn append_works() {
-        let mut stream = stream!["foo", "bar"];
-        stream = stream.append("baz");
-        assert_eq!(vec!["foo", "bar", "baz"], stream.to_vec());
+        let mut source = source!["foo", "bar"];
+        source = source.append("baz");
+        assert_eq!(vec!["foo", "bar", "baz"], source.to_vec());
     }
 
     #[test]
     fn prepend_works() {
-        let stream = stream!["bar", "baz"].prepend("foo");
-        assert_eq!(vec!["foo", "bar", "baz"], stream.to_vec());
+        let source = source!["bar", "baz"].prepend("foo");
+        assert_eq!(vec!["foo", "bar", "baz"], source.to_vec());
     }
 
     mod peek {
@@ -334,43 +334,43 @@ mod test {
 
         #[test]
         fn peek_works() {
-            let mut stream = stream!["foo", "bar"];
-            assert_eq!(stream.peek(), Some("foo"));
-            assert_eq!(vec!["foo", "bar"], stream.to_vec());
+            let mut source = source!["foo", "bar"];
+            assert_eq!(source.peek(), Some("foo"));
+            assert_eq!(vec!["foo", "bar"], source.to_vec());
         }
 
         #[test]
         fn allows_to_peek_ahead() {
-            let mut stream = Stream::from("x".chars());
-            assert_eq!(stream.peek(), Some('x'));
+            let mut source = Source::from("x".chars());
+            assert_eq!(source.peek(), Some('x'));
         }
 
         #[test]
         fn peeking_does_not_consume_chars() {
-            let mut stream = Stream::from("x".chars());
-            stream.peek();
-            assert_eq!(stream.next(), Some('x'));
+            let mut source = Source::from("x".chars());
+            source.peek();
+            assert_eq!(source.next(), Some('x'));
         }
 
         #[test]
         fn peeking_works_twice() {
-            let mut stream = Stream::from("ab".chars());
-            stream.peek();
-            assert_eq!(stream.peek(), Some('a'));
+            let mut source = Source::from("ab".chars());
+            source.peek();
+            assert_eq!(source.peek(), Some('a'));
         }
 
         #[test]
         fn peeking_works_after_next() {
-            let mut stream = Stream::from("ab".chars());
-            stream.next();
-            assert_eq!(stream.peek(), Some('b'));
+            let mut source = Source::from("ab".chars());
+            source.next();
+            assert_eq!(source.peek(), Some('b'));
         }
     }
 
     #[test]
     fn count_works() {
-        let stream = stream![1, 2, 3, 4, 5, 6, 7];
-        assert_eq!(stream.count(|x| x > 3), 4);
+        let source = source![1, 2, 3, 4, 5, 6, 7];
+        assert_eq!(source.count(|x| x > 3), 4);
     }
 
     mod join {
@@ -378,27 +378,27 @@ mod test {
 
         #[test]
         fn works() {
-            let stream = stream!("foo", "bar");
-            assert_eq!(stream.join("#"), "foo#bar");
+            let source = source!("foo", "bar");
+            assert_eq!(source.join("#"), "foo#bar");
         }
 
         #[test]
         fn works_with_both_str_and_string() {
-            let str_stream: Stream<&str> = stream!();
-            str_stream.join("");
-            let str_stream: Stream<&str> = stream!();
-            str_stream.join("".to_string());
-            let string_stream: Stream<String> = stream!();
-            string_stream.join("");
-            let string_stream: Stream<String> = stream!();
-            string_stream.join("".to_string());
+            let str_source: Source<&str> = source!();
+            str_source.join("");
+            let str_source: Source<&str> = source!();
+            str_source.join("".to_string());
+            let string_source: Source<String> = source!();
+            string_source.join("");
+            let string_source: Source<String> = source!();
+            string_source.join("".to_string());
         }
 
         #[test]
         fn works_with_empty_inputs() {
-            assert_eq!(stream!("", "foo").join("#"), "#foo");
-            assert_eq!(stream!("foo", "").join("#"), "foo#");
-            assert_eq!(stream!("", "foo", "").join("#"), "#foo#");
+            assert_eq!(source!("", "foo").join("#"), "#foo");
+            assert_eq!(source!("foo", "").join("#"), "foo#");
+            assert_eq!(source!("", "foo", "").join("#"), "#foo#");
         }
     }
 }
