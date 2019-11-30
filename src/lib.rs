@@ -189,9 +189,9 @@ macro_rules! source {
     };
 }
 
-impl<A: ToString> Source<A> {
+impl<A: std::fmt::Debug> Source<A> {
     pub fn into_string(self) -> String {
-        format!("source![{}]", self.map(|x| x.to_string()).join(", "))
+        format!("source![{}]", self.map(|x| format!("{:?}", x)).join(", "))
     }
 }
 
@@ -256,11 +256,23 @@ mod test {
         }
     }
 
-    #[test]
-    fn into_string_converts_into_source_macro() {
-        assert_eq!(source![1, 2, 3].into_string(), "source![1, 2, 3]");
-        let empty: Source<i32> = source![];
-        assert_eq!(empty.into_string(), "source![]");
+    mod into_string {
+        use super::*;
+
+        #[test]
+        fn into_string_converts_into_source_macro() {
+            assert_eq!(source![1, 2, 3].into_string(), "source![1, 2, 3]");
+            let empty: Source<i32> = source![];
+            assert_eq!(empty.into_string(), "source![]");
+        }
+
+        #[test]
+        fn into_string_uses_debug() {
+            assert_eq!(
+                source!["foo", "bar"].into_string(),
+                r#"source!["foo", "bar"]"#
+            );
+        }
     }
 
     #[test]
