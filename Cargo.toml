@@ -1,5 +1,6 @@
 [package]
 name = "source"
+description = "alternative to rust iterators"
 version = "0.1.0"
 authors = ["Sönke Hahn <soenkehahn@gmail.com>"]
 edition = "2018"
