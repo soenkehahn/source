@@ -3,6 +3,7 @@ name = "source"
 version = "0.1.0"
 authors = ["Sönke Hahn <soenkehahn@gmail.com>"]
 edition = "2018"
+license = "BSD-3-Clause"
 
 [dependencies]
 utf8-chars = "*"
