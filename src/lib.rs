@@ -8,10 +8,10 @@ pub struct Source<A: 'static>(Box<dyn FnOnce() -> Option<(A, Source<A>)> + 'stat
 impl<A: 'static> Source<A> {
     #[allow(clippy::should_implement_trait)]
     pub fn next(&mut self) -> Option<A> {
-        let original = std::mem::replace(&mut self.0, Box::new(|| None));
-        match original() {
+        let original = std::mem::replace(self, Source::empty());
+        match original.0() {
             Some((next_element, next_source)) => {
-                self.0 = next_source.0;
+                *self = next_source;
                 Some(next_element)
             }
             None => None,
@@ -34,10 +34,7 @@ impl<A: 'static> Source<A> {
     }
 
     pub fn map<B, F: FnMut(A) -> B + 'static>(mut self, mut function: F) -> Source<B> {
-        Source::new(move || match self.next() {
-            Some(x) => Some(function(x)),
-            None => None,
-        })
+        Source::new(move || self.next().map(|x| function(x)))
     }
 
     pub fn filter<F: FnMut(&A) -> bool + 'static>(mut self, mut function: F) -> Source<A> {
@@ -163,6 +160,7 @@ impl<Snippet: Into<Box<str>>> Source<Snippet> {
 impl<A> IntoIterator for Source<A> {
     type Item = A;
     type IntoIter = SourceIterator<A>;
+
     fn into_iter(self) -> SourceIterator<A> {
         SourceIterator(self)
     }
@@ -193,18 +191,7 @@ macro_rules! source {
 
 impl<A: ToString> Source<A> {
     pub fn into_string(self) -> String {
-        let mut first = true;
-        let mut result = "source![".to_string();
-        for a in self {
-            if !first {
-                result.push_str(", ");
-            } else {
-                first = false;
-            }
-            result.push_str(&a.to_string());
-        }
-        result.push_str("]");
-        result
+        format!("source![{}]", self.map(|x| x.to_string()).join(", "))
     }
 }
 
