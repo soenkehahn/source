@@ -7,4 +7,4 @@ edition = "2018"
 license = "BSD-3-Clause"
 
 [dependencies]
-utf8-chars = "*"
+utf8-chars = "^0.1"
