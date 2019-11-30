@@ -18,6 +18,17 @@ impl<A: 'static> Source<A> {
         }
     }
 
+    pub fn has_next(&mut self) -> bool {
+        match self.next() {
+            Some(a) => {
+                let original = std::mem::replace(self, Source::empty());
+                *self = original.prepend(a);
+                true
+            }
+            None => false,
+        }
+    }
+
     pub fn new<F: FnMut() -> Option<A> + 'static>(mut function: F) -> Source<A> {
         Source(Box::new(move || match function() {
             Some(next) => Some((next, Source::new(function))),
@@ -269,6 +280,36 @@ mod test {
         #[test]
         fn debug_uses_debug() {
             assert_eq!(source!["foo", "bar"].debug(), r#"source!["foo", "bar"]"#);
+        }
+    }
+
+    mod has_next {
+        use super::*;
+
+        #[test]
+        fn returns_true_for_non_empty_sources() {
+            let mut source = source!["foo"];
+            assert_eq!(source.has_next(), true);
+        }
+
+        #[test]
+        fn returns_false_when_all_elements_are_consumed() {
+            let mut source = source!["foo"];
+            source.next();
+            assert_eq!(source.has_next(), false);
+        }
+
+        #[test]
+        fn returns_false_for_empty_sources() {
+            let mut source: Source<()> = source![];
+            assert_eq!(source.has_next(), false);
+        }
+
+        #[test]
+        fn does_not_modify_the_source_elements() {
+            let mut source = source!["foo"];
+            source.has_next();
+            assert_eq!(source.to_vec(), vec!["foo"]);
         }
     }
 
