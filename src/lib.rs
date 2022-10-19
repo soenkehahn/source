@@ -30,9 +30,8 @@ impl<A: 'static> Source<A> {
     }
 
     pub fn new<F: FnMut() -> Option<A> + 'static>(mut function: F) -> Source<A> {
-        Source(Box::new(move || match function() {
-            Some(next) => Some((next, Source::new(function))),
-            None => None,
+        Source(Box::new(move || {
+            function().map(|next| (next, Source::new(function)))
         }))
     }
 
@@ -45,6 +44,7 @@ impl<A: 'static> Source<A> {
     }
 
     pub fn map<B, F: FnMut(A) -> B + 'static>(mut self, mut function: F) -> Source<B> {
+        #[allow(clippy::redundant_closure)]
         Source::new(move || self.next().map(|x| function(x)))
     }
 
