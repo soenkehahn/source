@@ -145,8 +145,9 @@ impl<A: Clone> Source<A> {
 impl Source<char> {
     pub fn read_utf8_file(file: &Path) -> Result<Source<char>, std::io::Error> {
         let mut file = BufReader::new(fs::File::open(file)?);
-        Ok(Source::new(move || {
-            file.read_char().expect("utf8 decoding error")
+        Ok(Source::new(move || match file.read_char() {
+            Ok(char) => char,
+            Err(_) => Some(std::char::REPLACEMENT_CHARACTER),
         }))
     }
 }
